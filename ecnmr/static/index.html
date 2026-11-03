@@ -1,0 +1,103 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light">
+  <title>Operando · EC–NMR workspace</title>
+  <link rel="stylesheet" href="/static/style.css">
+  <script src="/vendor/plotly.min.js" defer></script>
+  <script src="/static/app.js" defer></script>
+</head>
+<body>
+  <header class="app-header">
+    <a class="brand" href="/" aria-label="Operando home"><span class="brand-icon" aria-hidden="true"><svg viewBox="0 0 32 32"><path d="M2 17h5l3-10 5 20 5-20 3 10h7"/></svg></span><span>operando<span class="brand-sub">EC + NMR</span></span></a>
+    <span class="local-indicator"><span class="status-dot"></span>Local workspace<span class="header-divider">/</span>Prototype</span>
+    <div class="header-actions"><button class="button ghost" id="reopen-button" data-testid="reopen-button">↗ Reopen analysis</button><button class="button secondary" id="save-button" data-testid="save-button">↓ Save analysis</button></div>
+  </header>
+  <main class="app-shell">
+    <aside class="sidebar">
+      <div class="sidebar-top"><span class="eyebrow">WORKFLOW</span><h2>Your experiment,<br>in one view.</h2><p>Follow the electrochemistry.<br>Explore the spectra.</p></div>
+      <div class="mode-switch" role="tablist" aria-label="Operating mode">
+        <button class="mode-button active" role="tab" aria-selected="true" data-mode="offline" data-testid="mode-offline"><span class="mode-icon">◫</span><span>Offline analysis<small>Explore completed measurements</small></span></button>
+        <button class="mode-button" role="tab" aria-selected="false" data-mode="simulation" data-testid="mode-simulation"><span class="mode-icon">▷</span><span>Simulation<small>Watch data arrive progressively</small></span></button>
+        <button class="mode-button" role="tab" aria-selected="false" data-mode="live" data-testid="mode-live"><span class="mode-icon">⌁</span><span>Live acquisition<small>Instrument validation required</small></span><span class="tiny-tag">LAB</span></button>
+      </div>
+      <section class="sidebar-section">
+        <div class="section-title"><h3>Data sources</h3><button class="text-button" id="import-button" data-testid="import-button">Import +</button></div>
+        <div class="source-row"><span class="source-icon teal">EC</span><div><span class="source-label">Electrochemistry</span><span class="source-value" id="ec-source">Loading…</span></div></div>
+        <div class="source-row"><span class="source-icon purple">NMR</span><div><span class="source-label">NMR spectra</span><span class="source-value" id="nmr-source">Loading…</span></div></div>
+        <button class="button subtle full-width" id="demo-button" data-testid="demo-button">Load synthetic example</button>
+      </section>
+      <section class="sidebar-section alignment-section">
+        <div class="section-title"><h3>Time alignment</h3><span class="small-status" id="alignment-status">Checking</span></div>
+        <p class="small-copy" id="alignment-summary">Reading acquisition metadata…</p>
+        <details id="alignment-details"><summary>Adjust alignment <span>⌄</span></summary>
+          <form id="alignment-form" class="stacked-form">
+            <label>NMR offset from EC start (s)<input id="offset-input" data-testid="offset-input" type="number" step="any" value="0" required></label>
+            <label>Assumed row interval (s)<input id="interval-input" data-testid="interval-input" type="number" min="0.000001" step="any" placeholder="Only for rows without timing"></label>
+            <label>Acquisition duration (s)<input id="duration-input" type="number" min="0" step="any" placeholder="Leave blank if unknown"></label>
+            <label>Timing uncertainty (± s)<input id="uncertainty-input" type="number" min="0" step="any" placeholder="Unknown"></label>
+            <p class="field-note">A manual cadence is an assumption. Variable delays cannot be recovered from a single start date.</p>
+            <button class="button secondary full-width" type="submit" data-testid="apply-alignment">Apply manual alignment</button>
+          </form>
+        </details>
+      </section>
+      <section class="sidebar-section acquisition-section" id="acquisition-panel" hidden>
+        <div class="section-title"><h3>Acquisition controls</h3><span class="small-status" id="acquisition-status">Ready</span></div>
+        <div id="live-notice" class="inline-notice" hidden>Hardware acquisition is disabled. TopSpin, the SP-150e API and numerical data access need validation on the instrument computer. Offline analysis and simulation are available.</div>
+        <div id="simulation-controls">
+          <label class="control-label">Replay protocol<select id="protocol-select"><option>Loaded experiment timeline</option></select></label>
+          <label class="control-label">Replay speed<select id="speed-select" data-testid="speed-select"><option value="60">60× · one minute / second</option><option value="600" selected>600× · ten minutes / second</option><option value="3600">3600× · one hour / second</option><option value="18000">18000× · five hours / second</option></select></label>
+          <p class="field-note">Recorded data are replayed. New spectra appear only after their acquisition ends.</p>
+          <div class="control-buttons"><button class="button secondary" id="prepare-button" data-testid="prepare-button">Check / prepare</button><button class="button primary" id="start-button" data-testid="start-button">▶ Start</button></div>
+          <div class="control-buttons"><button class="button subtle" id="pause-button" data-testid="pause-button">Ⅱ Pause</button><button class="button danger" id="stop-button" data-testid="stop-button">■ Stop</button></div>
+          <details class="failure-details"><summary>Test interruption</summary><div class="failure-buttons"><button class="button subtle" id="disconnect-button" data-testid="disconnect-button">Disconnect</button><button class="button subtle" id="reconnect-button" data-testid="reconnect-button">Reconnect</button><button class="button danger" id="fail-button" data-testid="fail-button">Acquisition failure</button></div></details>
+        </div>
+      </section>
+      <div class="sidebar-footer"><span class="status-dot"></span><span id="connection-label">Service connected</span><small>Raw files remain unchanged.</small></div>
+    </aside>
+    <div class="workspace">
+      <div class="workspace-title"><div><div class="title-kicker"><span class="eyebrow" id="mode-kicker">OFFLINE ANALYSIS</span><span class="data-badge" id="data-badge">EXAMPLE DATA</span></div><h1 id="experiment-title">Loading experiment</h1><p id="experiment-subtitle">A shared timeline for electrochemistry and NMR.</p></div><div class="run-status"><span class="status-dot" id="run-dot"></span><span id="run-state" data-testid="run-state">Loading</span></div></div>
+      <div class="notice-banner" id="notice-banner" role="status" hidden><span class="notice-icon">ⓘ</span><span id="notice-text"></span><button class="text-button" id="notice-details">Alignment settings ↗</button></div>
+      <div class="metrics-row">
+        <div class="metric"><span class="metric-label">EC measurements</span><strong id="metric-ec" data-testid="metric-ec">—</strong><span class="metric-detail" id="metric-ec-detail">Voltage · current · capacity</span></div>
+        <div class="metric"><span class="metric-label">Available spectra</span><strong id="metric-spectra" data-testid="metric-spectra">—</strong><span class="metric-detail" id="metric-nucleus">NMR acquisition series</span></div>
+        <div class="metric"><span class="metric-label">Experiment time</span><strong id="metric-time">—</strong><span class="metric-detail" id="metric-time-detail">Elapsed electrochemical time</span></div>
+        <div class="metric"><span class="metric-label">Selected acquisition</span><strong id="metric-selected" data-testid="metric-selected">—</strong><span class="metric-detail" id="metric-selection-time">Choose a spectrum below</span></div>
+      </div>
+      <section class="chart-card timeline-card">
+        <div class="card-heading"><div><span class="card-number">01</span><h2>Electrochemical timeline</h2><span class="chart-hint">Click a curve to inspect the nearest spectrum</span></div><div class="chart-actions"><select aria-label="Electrochemical quantity" id="ec-view"><option value="potential">Potential & current</option><option value="capacity">Capacity & current</option></select><button class="icon-button" id="export-ec" title="Download electrochemical plot" aria-label="Download electrochemical plot">↓</button></div></div>
+        <div class="plot timeline-plot" id="ec-plot" data-testid="ec-plot"></div>
+        <div class="card-caption"><span><i class="legend-line teal-line"></i><span id="ec-legend">Potential / V</span><i class="legend-line coral-line"></i>Current / mA</span><span id="match-description" data-testid="match-description">Select a point or an acquisition to link the views.</span></div>
+      </section>
+      <div class="spectral-grid">
+        <section class="chart-card spectrum-card">
+          <div class="card-heading"><div><span class="card-number">02</span><h2>NMR spectra</h2><span class="count-pill" id="overlay-count">0 selected</span></div><div class="chart-actions"><button class="text-button" id="latest-button" data-testid="latest-button">Latest</button><button class="icon-button" id="export-spectrum" title="Download spectrum plot" aria-label="Download spectrum plot">↓</button></div></div>
+          <div class="plot spectrum-plot" id="spectrum-plot" data-testid="spectrum-plot"></div>
+          <div class="card-caption"><span id="spectrum-caption">Chemical shift decreases from left to right.</span><button class="text-button" id="spectrum-info-button">Acquisition details</button></div>
+        </section>
+        <section class="chart-card series-card">
+          <div class="card-heading"><div><span class="card-number">03</span><h2>Acquisition series</h2></div><div class="chart-actions"><label class="checkbox-label"><input type="checkbox" id="follow-latest" checked>Follow latest</label></div></div>
+          <div class="series-tabs" role="tablist" aria-label="Series view"><button class="active" data-series-view="list" role="tab" aria-selected="true">Spectra list</button><button data-series-view="map" role="tab" aria-selected="false" data-testid="series-map-tab">Intensity map</button><span>Check to overlay</span></div>
+          <div class="spectrum-list" id="spectrum-list" data-testid="spectrum-list"></div>
+          <div class="plot heatmap-plot" id="heatmap-plot" data-testid="heatmap-plot" hidden></div>
+          <div class="card-caption"><span id="series-caption">Acquisition order is preserved.</span><button class="text-button" id="clear-overlays" data-testid="clear-overlays">Clear overlays</button></div>
+        </section>
+      </div>
+      <section class="chart-card peak-card">
+        <div class="card-heading"><div><span class="card-number">04</span><h2>Peak evolution</h2><span class="chart-hint">Track a region across all available spectra</span></div><button class="button subtle compact" id="export-peaks" data-testid="export-peaks">↓ Export results</button></div>
+        <div class="peak-controls"><label>Region / ppm<span class="range-input"><input id="peak-min" data-testid="peak-min" type="number" step="any" value="-10" aria-label="Minimum chemical shift"><span>to</span><input id="peak-max" data-testid="peak-max" type="number" step="any" value="10" aria-label="Maximum chemical shift"></span></label><label>Measurement<select id="peak-metric"><option value="integral">Integral (intensity × ppm)</option><option value="intensity">Maximum intensity</option></select></label><label>Plot against<select id="peak-axis" data-testid="peak-axis"><option value="time">Experiment time / h</option><option value="voltage">Potential / V</option><option value="capacity">Capacity / mAh</option><option value="index">Acquisition number</option></select></label><button class="button secondary compact" id="track-button" data-testid="track-button">Update tracking</button></div>
+        <div class="plot peak-plot" id="peak-plot" data-testid="peak-plot"></div>
+        <div class="card-caption"><span id="peak-caption">Integrals use the original spectral intensities; no normalization is applied.</span><span id="peak-count"></span></div>
+      </section>
+      <footer class="workspace-footer"><span>Operando EC–NMR prototype</span><span>Offline import · shared analysis · simulated acquisition</span><span id="event-label">No hardware activated</span></footer>
+    </div>
+  </main>
+  <dialog id="import-dialog"><form id="import-form"><div class="dialog-heading"><h2>Open experimental data</h2><button type="button" class="icon-button dialog-close" aria-label="Close">×</button></div><p>Import an EC-Lab measurement and a ZIP of Bruker datasets. The original files are preserved.</p><label class="file-picker">Electrochemistry <small>.mpr, .mpt or .zip</small><input type="file" id="ec-file" name="ec_file" accept=".mpr,.mpt,.zip" data-testid="ec-file"></label><label class="file-picker">NMR datasets <small>Bruker folder as .zip</small><input type="file" id="nmr-file" name="nmr_file" accept=".zip" data-testid="nmr-file"></label><p class="field-note">Independent measurements may need manual alignment. Imported timestamps are retained without assuming they share the same clock.</p><div class="dialog-actions"><button type="button" class="button subtle dialog-close">Cancel</button><button type="submit" class="button primary" id="import-submit" data-testid="import-submit">Import data</button></div></form></dialog>
+  <dialog id="metadata-dialog"><div class="dialog-heading"><h2>Acquisition & provenance</h2><button type="button" class="icon-button dialog-close" aria-label="Close">×</button></div><pre id="metadata-content"></pre></dialog>
+  <input type="file" id="session-file" accept=".json,.ecnmr" hidden data-testid="session-file">
+  <div id="toast" class="toast" role="alert" hidden></div>
+  <div id="busy-overlay" class="busy-overlay" hidden><div class="busy-card"><span class="spinner"></span><strong id="busy-label">Reading experimental data…</strong><span>Large spectra can take a moment.</span></div></div>
+</body>
+</html>

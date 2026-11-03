@@ -1,0 +1,32 @@
+[build-system]
+requires = ["setuptools==80.9.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "ecnmr"
+version = "0.1.0"
+description = "Local operando electrochemistry–NMR viewer and acquisition simulator"
+requires-python = ">=3.10,<3.14"
+license = "GPL-3.0-or-later"
+dependencies = [
+  "fastapi==0.115.6", "uvicorn==0.34.0", "numpy==2.2.6",
+  "nmrglue==0.11", "galvani==0.5.0", "plotly==5.24.1",
+  "python-multipart==0.0.20",
+]
+
+[project.optional-dependencies]
+test = ["pytest==8.3.5", "httpx==0.28.1", "playwright==1.56.0"]
+
+[project.scripts]
+ecnmr = "ecnmr.__main__:main"
+
+[tool.setuptools.package-data]
+ecnmr = ["static/*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+markers = ["real: requires ECNMR_REAL_DATA with supplied experimental files"]
+
+[tool.setuptools.packages.find]
+include = ["ecnmr*"]
+exclude = ["tests*", "examples*", "docs*", "scripts*", "topspin*", "work*"]
