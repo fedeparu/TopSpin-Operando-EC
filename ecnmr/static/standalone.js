@@ -315,6 +315,31 @@
       return new Response(JSON.stringify({detail: e.message}), {status: 400, headers: {"Content-Type": "application/json"}});
     }
   };
+  window.ECNMR_OPEN_WINDOW = settings => {
+    const popup = window.open("", "OperandoECNMRPopup", "popup=yes,width=1420,height=960,resizable=yes,scrollbars=no");
+    if (!popup) return null;
+    popup.document.open(); popup.document.write(pristineHTML); popup.document.close();
+    // The new window is an offline analysis snapshot. It does not start another
+    // acquisition clock or require an HTTP service, even from a saved HTML file.
+    ready.then(() => {
+      const snapshot = {...view(), analysis: settings || source.analysis,
+        metadata: {...source.metadata, capture_state: status(), standalone_html: true}};
+      const deadline = performance.now() + 30000;
+      const timer = setInterval(async () => {
+        if (popup.closed || performance.now() > deadline) { clearInterval(timer); return; }
+        if (!popup.ECNMR?.ready || !popup.ECNMR_TRANSPORT) return;
+        clearInterval(timer);
+        try {
+          const form = new popup.FormData();
+          form.append("file", new popup.File([JSON.stringify(snapshot)], "window-analysis.json", {type: "application/json"}));
+          const response = await popup.ECNMR_TRANSPORT("/api/session", {method: "POST", body: form});
+          if (response.ok) await popup.ECNMR.refresh();
+          else console.warn("The companion opened its embedded dataset; analysis snapshot was not restored.");
+        } catch (_) { /* The user may close the new window during startup. */ }
+      }, 100);
+    });
+    return popup;
+  };
   document.addEventListener("DOMContentLoaded", async () => {
     pristineHTML = "<!DOCTYPE html>\n" + document.documentElement.outerHTML;
     const $ = id => document.getElementById(id);

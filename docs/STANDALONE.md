@@ -39,6 +39,10 @@ JSON before closing the tab. CSV and image exports are also available.
 
 ## Download a self-contained HTML
 
+Click **Pop out** to open the current analysis in a separate companion window.
+The data browser, display ribbon and command line follow the
+[companion workbench guide](COMPANION_UI.md).
+
 Click **Download HTML** in the top bar. Plotly, styling, the shared renderer, the
 browser controller and embedded recordings are included in one file. It makes
 no external data requests and needs no Python service after export. Use a

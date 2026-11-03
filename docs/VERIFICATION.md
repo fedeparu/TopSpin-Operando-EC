@@ -111,3 +111,18 @@ five Chromium workflows against the running service and self-contained HTML.
 Source and screenshots continue to exclude raw experimental data. Real-data
 preview images are private; the repository preview contains synthetic data.
 The same-start assumption is not a measured hardware synchronization claim.
+
+## TopSpin-style companion shell
+
+The complete suite passed **72 tests** in **72.88 seconds**. The added browser
+checks exercise the working dataset browser/filter, menu actions, display commands,
+focused 1D workspace and saved tab state. Unsupported vendor commands do not run.
+A separate pop-out window preserves the current spectrum, lock and contour view
+as an offline snapshot, without another acquisition clock or HTTP data requests.
+
+The real-data pop-out was also checked with all 64 spectra and 4,096 points per
+spectrum. Desktop and 390-pixel mobile layouts were rendered and inspected;
+there is no horizontal page overflow, and EC/NMR plot heights stay matched.
+The original importer, alignment, hover and replay regression tests still pass.
+Scientific measurements, source metadata, timing assumptions and Site audience
+are unchanged. This is an external companion, not native TopSpin GUI embedding.

@@ -59,6 +59,10 @@ python3 -m venv .venv
 
 ## Use the viewer
 
+The [TopSpin-style companion shell](docs/COMPANION_UI.md) provides a data browser,
+grouped display ribbon, focused-1D tab, working display command line and a
+separate pop-out window. It remains an external companion.
+
 The main view places the EC curves and the NMR series side by side on a shared
 vertical time axis. Move the mouse through either plot to inspect that time in
 both. Click to **pin** the selected acquisition; **Unlock** restores hover

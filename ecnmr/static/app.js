@@ -8,10 +8,10 @@
   const hours = seconds => finite(seconds) ? `${fmt(seconds / 3600, 3)} h` : "Timing unknown";
   const basename = value => String(value || "").split(/[\\/]/).filter(Boolean).pop() || "Not loaded";
   const safeName = value => String(value || "experiment").replace(/[^a-zA-Z0-9_.-]/g, "_").slice(0, 90);
-  const colors = ["#2b837c", "#8c91b1", "#9aaa8b", "#b5a286", "#87aaa7"];
-  const coral = "#ca7556";
+  const colors = ["#3b72ad", "#8875b2", "#7d9c9c", "#b38c60", "#6f93b4"];
+  const coral = "#c9683f";
   const request = window.ECNMR_TRANSPORT || window.fetch.bind(window);
-  const ui = {experiment: null, state: null, mode: "offline", selectedIds: new Set(), selectedId: null,
+  const ui = {workspaceView: "linked", browserHidden: window.matchMedia("(max-width: 1000px)").matches, experiment: null, state: null, mode: "offline", selectedIds: new Set(), selectedId: null,
     hoveredId: null, locked: false, ready: false, modeBusy: false, previewLive: false,
     signature: "", pollBusy: false, renderBusy: false, renderPending: false, initialized: false,
     seriesView: "stacked", gain: 0.7, timeRange: null, ppmRange: null, focusRange: null,
@@ -23,17 +23,18 @@
     get experiment() { return ui.experiment; }, get state() { return ui.state; },
     get selectedIds() { return new Set(ui.selectedIds); }, get selectedId() { return ui.selectedId; },
     get hoveredId() { return ui.hoveredId; }, get currentId() { return ui.noAcquisition && !ui.locked ? null : ui.hoveredId || ui.selectedId; },
-    get locked() { return ui.locked; }, get ready() { return ui.ready; },
+    get workspaceView() { return ui.workspaceView; }, get browserHidden() { return ui.browserHidden; },
+    executeCommand, setWorkspaceView, get locked() { return ui.locked; }, get ready() { return ui.ready; },
     setSelection: (id, overlay = false) => selectSpectrum(id, overlay), refresh: () => refresh(true),
   };
   const config = {responsive: true, displaylogo: false, scrollZoom: true,
     modeBarButtonsToRemove: ["lasso2d", "select2d", "autoScale2d", "hoverCompareCartesian", "hoverClosestCartesian"]};
-  const plotFont = {family: 'Inter, "Segoe UI", Arial, sans-serif', size: 11, color: "#76857c"};
-  const axis = () => ({gridcolor: "#edf1ed", zerolinecolor: "#e4ebe4", showline: false, ticks: "", tickfont: {size: 10},
+  const plotFont = {family: '"Segoe UI", Inter, Arial, sans-serif', size: 11, color: "#667c94"};
+  const axis = () => ({gridcolor: "#e9eef5", zerolinecolor: "#dbe4ef", showline: false, ticks: "", tickfont: {size: 10},
     title: {font: {size: 11}, standoff: 12}, automargin: false});
   const layout = key => ({font: {...plotFont}, paper_bgcolor: "#fff", plot_bgcolor: "#fff", showlegend: false,
     margin: {l: 62, r: 22, t: 12, b: 47}, hovermode: "closest", dragmode: "zoom",
-    hoverlabel: {font: {size: 11}, bgcolor: "#fff", bordercolor: "#dce5dd"},
+    hoverlabel: {font: {size: 11}, bgcolor: "#fff", bordercolor: "#cddbeb"},
     uirevision: `${ui.experiment?.id || "empty"}:${key}`, xaxis: axis(), yaxis: axis()});
   const isAligned = () => ui.experiment && ui.experiment.alignment?.method !== "unaligned";
   const timeOf = s => isAligned() && finite(s.time_s) ? s.time_s + (ui.experiment.alignment.offset_s || 0) : null;
@@ -87,7 +88,7 @@
         }
         await render();
       }
-      renderState(); $("connection-label").textContent = window.ECNMR_TRANSPORT ? "Running in this browser" : "Local service connected"; ui.lastError = "";
+      renderState(); $("connection-label").textContent = ui.mode === "simulation" ? "Recorded replay" : ui.mode === "live" ? "Hardware disconnected" : "Offline data ready"; ui.lastError = "";
     } catch (error) {
       $("connection-label").textContent = "Service unavailable · retrying";
       if (error.message !== ui.lastError) toast(error.message, true); ui.lastError = error.message;
@@ -102,12 +103,16 @@
     if (settings.peak_metric) $("peak-metric").value = settings.peak_metric;
     if (["potential", "current", "capacity"].includes(settings.ec_view)) $("ec-view").value = settings.ec_view;
     if (typeof settings.follow_latest === "boolean") $("follow-latest").checked = settings.follow_latest;
-    if (fresh) { ui.hoveredId = null; ui.noAcquisition = false; ui.locked = settings.locked === true; ui.timeRange = null; ui.ppmRange = null; }
+    if (fresh) { ui.hoveredId = null; ui.noAcquisition = false; ui.timeRange = null; ui.ppmRange = null; }
+    if (typeof settings.locked === "boolean") ui.locked = settings.locked; else if (fresh) ui.locked = false;
     if (["stacked", "contour", "map"].includes(settings.series_view)) ui.seriesView = settings.series_view; else if (fresh) ui.seriesView = "stacked";
     if (finite(settings.gain) && settings.gain >= 0.15 && settings.gain <= 3) ui.gain = settings.gain; else if (fresh) ui.gain = 0.7;
     if (Array.isArray(settings.time_range) && settings.time_range.length === 2 && settings.time_range.every(finite)) ui.timeRange = settings.time_range;
     if (Array.isArray(settings.ppm_range) && settings.ppm_range.length === 2 && settings.ppm_range.every(finite)) ui.ppmRange = settings.ppm_range;
     if (["nmr", "full"].includes(settings.time_window)) $("time-window").value = settings.time_window; else if (fresh) $("time-window").value = "nmr";
+    if (["linked", "detail"].includes(settings.workspace_view)) ui.workspaceView = settings.workspace_view; else if (fresh) ui.workspaceView = "linked";
+    if (typeof settings.browser_hidden === "boolean") ui.browserHidden = settings.browser_hidden;
+    applyWorkspaceView();
     $("series-view").value = ui.seriesView; $("gain-input").value = ui.gain; $("gain-value").textContent = `${ui.gain.toFixed(2)}×`;
   }
   function restoreAlignmentInputs(exp) {
@@ -155,7 +160,7 @@
     return {selected_ids: [...ui.selectedIds], selected_id: ui.selectedId, locked: ui.locked,
       peak_min: Number($("peak-min").value), peak_max: Number($("peak-max").value), x_axis: $("peak-axis").value,
       peak_metric: $("peak-metric").value, ec_view: $("ec-view").value, follow_latest: $("follow-latest").checked,
-      series_view: ui.seriesView, gain: ui.gain, time_range: ui.timeRange, ppm_range: ui.ppmRange, time_window: $("time-window").value};
+      workspace_view: ui.workspaceView, browser_hidden: ui.browserHidden, series_view: ui.seriesView, gain: ui.gain, time_range: ui.timeRange, ppm_range: ui.ppmRange, time_window: $("time-window").value};
   }
   function queueAnalysisSave() { clearTimeout(ui.analysisTimer); ui.analysisTimer = setTimeout(() => saveAnalysis().catch(e => toast(e.message, true)), 500); }
   async function saveAnalysis() { clearTimeout(ui.analysisTimer); await api("/api/analysis", jsonRequest("PUT", analysis())); }
@@ -196,7 +201,7 @@
     $("series-caption").textContent = ui.timed ? "Experiment time increases downward · shared zoom & pan" : "NMR acquisition order only · timing unaligned";
     $("series-scale-caption").textContent = ui.seriesView === "stacked" ? "Display offsets only · one global amplitude scale" : "Coral trace = current 1D spectrum at its acquisition time";
     $("nmr-series-title").textContent = `${spectra[0]?.metadata?.nucleus || "NMR"} · ${{stacked: "stacked spectra", contour: "contour view", map: "intensity map"}[ui.seriesView]}`;
-    $("overlay-count").textContent = `${ui.selectedIds.size} selected`; renderState(); renderSelectionLabels();
+    $("overlay-count").textContent = `${ui.selectedIds.size} selected`; renderState(); renderSelectionLabels(); renderWorkbenchInfo();
   }
   function renderSelectionLabels() {
     const s = currentSpectrum(), index = s ? ui.experiment.spectra.indexOf(s) : -1;
@@ -209,12 +214,13 @@
     $("spectrum-caption").textContent = s ? `${s.label || `Spectrum ${index + 1}`} · original intensity values · no normalization` : "No completed acquisition yet";
     $("match-description").textContent = ui.locked ? `Spectrum ${index + 1} locked. Choose Unlock hover to explore freely.` : ui.noAcquisition ? "No NMR acquired at this time. The detail pane retains the last pinned spectrum." : ui.hoveredId ? `Previewing spectrum ${index + 1}. Click either plot to lock it.` : "Hover either plot to inspect a spectrum. Click to lock it.";
     document.querySelectorAll(".spectrum-row").forEach(row => row.classList.toggle("selected", row.dataset.spectrumId === s?.id));
+    renderWorkbenchSelection();
   }
   function renderNavigation() {
     const select = $("spectrum-select"), fragment = document.createDocumentFragment();
     ui.experiment.spectra.forEach((s, i) => { const option = document.createElement("option"); option.value = s.id; option.textContent = `${String(i + 1).padStart(2, "0")} · ${ui.timed ? hours(representativeTime(s)) : s.label || "timing unknown"}`; fragment.append(option); });
     select.replaceChildren(fragment); $("spectrum-slider").max = Math.max(ui.experiment.spectra.length - 1, 0); select.disabled = !ui.experiment.spectra.length; $("spectrum-slider").disabled = !ui.experiment.spectra.length;
-    renderList(); renderSelectionLabels();
+    renderList(); renderBrowserTree(); renderSelectionLabels();
   }
   function renderList() {
     const list = $("spectrum-list"), oldScroll = list.scrollTop, fragment = document.createDocumentFragment();
@@ -266,7 +272,7 @@
     l.xaxis.title.text = $("ec-view").selectedOptions[0].textContent; l.yaxis.title.text = "Experiment time / h";
     l.yaxis.range = ui.timeRange; l.yaxis.autorange = false; l.shapes = selectionShape();
     const traces = values?.some(finite) ? [{type: "scatter", mode: "lines", x: data.y, y: data.x, name: l.xaxis.title.text,
-      line: {color: "#3e827b", width: 1.5}, hoverinfo: "skip", meta: {kind: "electrochemistry"}}] : [];
+      line: {color: "#386b91", width: 1.5}, hoverinfo: "skip", meta: {kind: "electrochemistry"}}] : [];
     if (!traces.length) l.annotations = emptyAnnotation("Waiting for EC data");
     await Plotly.react("ec-plot", traces, l, config);
   }
@@ -285,7 +291,7 @@
       const x = [], y = [], customdata = [], scale = ui.spacing * ui.gain * 0.85 / ui.globalMax;
       spectra.forEach((s, i) => { const points = displayPoints(s), baseline = rowTime(s, i);
         x.push(...points.x, null); y.push(...points.y.map(value => baseline - value * scale), null); customdata.push(...points.x.map(() => s.id), null); });
-      traces.push({type: "scatter", mode: "lines", x, y, customdata, line: {color: "#8aa7a1", width: 0.8}, hoverinfo: "skip", name: "Acquisition series", meta: {kind: "stacked-background"}});
+      traces.push({type: "scatter", mode: "lines", x, y, customdata, line: {color: "#8ca8ca", width: 0.85}, hoverinfo: "skip", name: "Acquisition series", meta: {kind: "stacked-background"}});
     } else if (spectra.length) {
       const first = spectra[0], low = Math.min(...ui.ppmRange), high = Math.max(...ui.ppmRange);
       const indices = first.ppm.map((v, i) => v >= low && v <= high ? i : -1).filter(i => i >= 0), step = Math.max(1, Math.ceil(indices.length / 450));
@@ -293,7 +299,7 @@
       if (common) {
         const max = ui.globalMax / ui.gain, z = spectra.map(s => cols.map(i => s.intensity[i]));
         traces.push({type: ui.seriesView === "contour" ? "contour" : "heatmap", x: cols.map(i => first.ppm[i]), y: spectra.map(rowTime), z,
-          colorscale: [[0, "#fff"], [0.08, "#f0f5ef"], [0.3, "#bbd4c9"], [0.6, "#6ba59b"], [1, "#2b7a72"]],
+          colorscale: [[0, "#fff"], [0.08, "#f1f5fc"], [0.3, "#c2d4ed"], [0.6, "#799fcf"], [1, "#2e65a1"]],
           zmin: 0, zmax: max, showscale: false, hoverinfo: "skip", name: "Intensity",
           ...(ui.seriesView === "contour" ? {contours: {coloring: "lines", showlabels: false, start: max * 0.05, end: max, size: max / 12}, line: {width: 0.9}, autocontour: false} : {})});
       } else l.annotations = emptyAnnotation("This view requires a shared chemical-shift axis");
@@ -414,6 +420,8 @@
     if (overlay) ui.selectedIds.add(id); else ui.selectedIds = new Set([id]);
     if (ui.state?.state === "running") $("follow-latest").checked = false;
     renderNavigation(); await renderSpectra(); await updateHighlight(); queueAnalysisSave();
+    const browserRow = $("browser-spectra").querySelector(".browser-spectrum.current");
+    if (browserRow?.offsetParent) browserRow.scrollIntoView({block: "nearest"});
   }
   async function toggleOverlay(id) {
     if (ui.selectedIds.has(id)) ui.selectedIds.delete(id); else ui.selectedIds.add(id);
@@ -503,7 +511,180 @@
       toast("Timing assumption applied; original timestamps remain preserved.");
     });
   }
+  // Desktop-style companion actions call the existing analysis/view controls.
+  let commandHistory = [], commandPosition = 0;
+  function resizeWorkspace() {
+    requestAnimationFrame(() => requestAnimationFrame(() => {
+      ["ec-plot", "heatmap-plot", "spectrum-plot", "peak-plot"].forEach(id => {
+        const plot = $(id); if (plot?._fullLayout && plot.getBoundingClientRect().height > 0) Plotly.Plots.resize(plot);
+      });
+    }));
+  }
+  function applyWorkspaceView() {
+    document.body.dataset.workspaceView = ui.workspaceView;
+    document.body.classList.toggle("browser-hidden", ui.browserHidden);
+    $("workspace-linked").setAttribute("aria-selected", String(ui.workspaceView === "linked"));
+    $("workspace-detail").setAttribute("aria-selected", String(ui.workspaceView === "detail"));
+    document.querySelectorAll('[data-action="browser"][aria-pressed]').forEach(button => button.setAttribute("aria-pressed", String(!ui.browserHidden)));
+  }
+  function setWorkspaceView(view) {
+    ui.workspaceView = view === "detail" ? "detail" : "linked";
+    applyWorkspaceView(); resizeWorkspace(); queueAnalysisSave();
+  }
+  function renderWorkbenchInfo() {
+    const exp = ui.experiment, first = exp.spectra[0], metadata = first?.metadata || {};
+    $("experiment-title").title = exp.name || "EC–NMR experiment";
+    $("browser-ec-source").textContent = basename(exp.ec.source); $("browser-ec-source").title = exp.ec.source || "";
+    const expno = basename(metadata.experiment_source || ""), processed = String(metadata.processed_source || first?.source || "").replace(/\\/g, "/");
+    const procno = processed.match(/\/pdata\/([^/]+)/)?.[1];
+    $("browser-nmr-source").textContent = /^\d+$/.test(expno) ? `EXPNO ${expno}` : "Processed spectra";
+    $("browser-count").textContent = exp.spectra.length;
+    $("document-dataset").textContent = /^\d+$/.test(expno) ? `${expno} / ${procno || "1"}` : exp.metadata?.synthetic ? "Example" : "Dataset";
+    $("document-path").textContent = [metadata.nucleus, /^\d+$/.test(expno) ? `EXPNO ${expno}` : null, procno ? `PROCNO ${procno}` : null].filter(Boolean).join("  /  ");
+    document.querySelectorAll("[data-ec-quantity]").forEach(button => button.classList.toggle("active", button.dataset.ecQuantity === $("ec-view").value));
+    document.querySelectorAll('[data-action="html"]').forEach(button => { button.disabled = !$("download-html"); });
+    applyWorkspaceView();
+  }
+  function renderBrowserTree() {
+    const fragment = document.createDocumentFragment();
+    ui.experiment.spectra.forEach((s, i) => {
+      const button = document.createElement("button"); button.type = "button"; button.className = "browser-spectrum";
+      button.dataset.acquisitionId = s.id; button.dataset.testid = "browser-acquisition";
+      button.dataset.search = `${i + 1} ${String(i + 1).padStart(3, "0")} ${s.label || ""}`.toLowerCase();
+      button.title = `${s.label || `Spectrum ${i + 1}`} · ${ui.timed ? hours(representativeTime(s)) : "timing unknown"}`;
+      button.setAttribute("aria-label", `Select acquisition ${i + 1}`);
+      const number = document.createElement("span"); number.textContent = String(i + 1).padStart(3, "0");
+      const time = document.createElement("span"); time.textContent = ui.timed ? fmt(representativeTime(s) / 3600, 3) : "—";
+      button.append(number, time); button.addEventListener("click", () => selectSpectrum(s.id)); fragment.append(button);
+    });
+    const list = $("browser-spectra"), scroll = list.scrollTop;
+    list.replaceChildren(fragment); list.scrollTop = scroll; filterBrowser();
+  }
+  function filterBrowser() {
+    const term = $("browser-filter").value.trim().toLowerCase();
+    $("browser-spectra").querySelectorAll(".browser-spectrum").forEach(button => { button.hidden = !button.dataset.search.includes(term); });
+  }
+  function renderWorkbenchSelection() {
+    const s = currentSpectrum(), i = s ? ui.experiment.spectra.indexOf(s) : -1, m = s?.metadata || {};
+    $("browser-nucleus").textContent = m.nucleus || "—";
+    $("browser-points").textContent = s ? nfmt(s.ppm.length) : "—";
+    $("browser-scans").textContent = m.acquisition_parameters?.NS != null ? nfmt(m.acquisition_parameters.NS) : "—";
+    $("status-selection").textContent = s ? `${m.nucleus || "NMR"} · ${i + 1}/${ui.experiment.spectra.length} · ${ui.timed ? hours(representativeTime(s)) : "timing unknown"}${ui.locked ? " · locked" : ""}` : "No completed acquisition";
+    $("browser-spectra").querySelectorAll(".browser-spectrum").forEach(button => {
+      const active = button.dataset.acquisitionId === s?.id;
+      button.classList.toggle("current", active); button.classList.toggle("locked", active && ui.locked); button.setAttribute("aria-pressed", String(active));
+    });
+  }
+  function closeMenus() {
+    document.querySelectorAll("[data-menu-panel]").forEach(panel => { panel.hidden = true; });
+    document.querySelectorAll("[data-menu]").forEach(button => button.setAttribute("aria-expanded", "false"));
+  }
+  async function workbenchAction(action) {
+    closeMenus();
+    const click = id => $(id)?.click();
+    if (action === "help") { if (!$("help-dialog").open) $("help-dialog").showModal(); return; }
+    if (action === "command") { $("command-input").focus(); return; }
+    if (action === "popout") {
+      const popup = window.ECNMR_OPEN_WINDOW ? window.ECNMR_OPEN_WINDOW(analysis()) : window.open(window.location.href, "OperandoECNMRPopup", "popup=yes,width=1420,height=960,resizable=yes,scrollbars=no");
+      if (!popup) toast("Allow pop-ups for this page to open the companion window.", true);
+      else { popup.focus(); saveAnalysis().catch(e => toast(e.message, true)); }
+      return;
+    }
+    if (action === "maximize") {
+      const enlarged = document.body.classList.toggle("window-maximized");
+      $("maximize-button").setAttribute("aria-label", enlarged ? "Restore workspace size" : "Maximize workspace"); resizeWorkspace(); return;
+    }
+    if (!ui.experiment) throw new Error("The dataset is loading. Try again in a moment.");
+    if (action === "linked" || action === "detail") { setWorkspaceView(action); return; }
+    if (action === "browser") { ui.browserHidden = !ui.browserHidden; applyWorkspaceView(); resizeWorkspace(); queueAnalysisSave(); return; }
+    if (action === "open") return click("import-button");
+    if (action === "reopen") return click("reopen-button");
+    if (action === "save") return click("save-button");
+    if (action === "html") return click("download-html");
+    if (action === "settings") return openSettings();
+    if (action === "parameters") return click("spectrum-info-button");
+    if (action === "peak") return click("focus-spectrum");
+    if (action === "full") return click("full-spectrum");
+    if (action === "lock") { if (currentSpectrum()) await selectSpectrum(currentSpectrum().id); return; }
+    if (action === "unlock") return click("unlock-button");
+    if (action === "analysis") {
+      $("peak-analysis").open = true; await renderPeak(); $("peak-analysis").scrollIntoView({block: "nearest", behavior: "smooth"}); return;
+    }
+    if (action === "compare") { $("overlay-details").open = true; $("overlay-details").scrollIntoView({block: "nearest"}); return; }
+    if (["stack", "contour", "map"].includes(action)) {
+      ui.seriesView = action === "stack" ? "stacked" : action; $("series-view").value = ui.seriesView;
+      renderInfo(); await renderSeries(); queueAnalysisSave(); return;
+    }
+    if (action === "pan" || action === "zoom") {
+      const dragmode = action === "pan" ? "pan" : "zoom";
+      await Promise.all(["ec-plot", "heatmap-plot", "spectrum-plot"].map(id => Plotly.relayout(id, {dragmode})));
+      document.querySelectorAll('.ribbon-button[data-action="pan"],.ribbon-button[data-action="zoom"]').forEach(button => button.setAttribute("aria-pressed", String(button.dataset.action === action))); return;
+    }
+    if (action === "nmr-time" || action === "full-time") {
+      $("time-window").value = action === "nmr-time" ? "nmr" : "full"; ui.timeRange = defaultTimeRange(); await setTimeRange(); return;
+    }
+    if (action === "reset") {
+      ui.ppmRange = ui.focusRange ? [...ui.focusRange] : null; ui.pointCache.clear(); ui.timeRange = defaultTimeRange();
+      await Promise.all([renderEC(), renderSeries(), renderSpectra()]); queueAnalysisSave(); return;
+    }
+    throw new Error("Unknown display action.");
+  }
+  async function executeCommand(text) {
+    const input = text.trim(), command = input.toLowerCase();
+    if (!input) return;
+    if (/^(?:spectrum|row)\s+\d+$/.test(command)) {
+      const index = Number(command.split(/\s+/)[1]) - 1, spectrum = ui.experiment?.spectra[index];
+      if (!spectrum) throw new Error(`Choose an acquisition between 1 and ${ui.experiment?.spectra.length || 0}.`);
+      await selectSpectrum(spectrum.id);
+    } else if (/^gain\s+[\d.]+$/.test(command)) {
+      const gain = Number(command.split(/\s+/)[1]); if (!finite(gain) || gain < 0.15 || gain > 3) throw new Error("Display gain must be between 0.15 and 3.");
+      ui.gain = gain; $("gain-input").value = gain; $("gain-value").textContent = `${gain.toFixed(2)}×`; await renderSeries(); queueAnalysisSave();
+    } else if (["stack", "contour", "map", "full", "peak", "reset", "lock", "unlock", "pan", "zoom", "linked", "detail", "browser", "help"].includes(command)) await workbenchAction(command);
+    else throw new Error("Display command unavailable. Type help for supported commands; vendor processing commands require TopSpin.");
+    $("command-response").textContent = `${input} · done`;
+    return true;
+  }
+  function bindWorkbench() {
+    if (window.name === "OperandoECNMRPopup") document.body.classList.add("popup-window");
+    applyWorkspaceView();
+    document.querySelectorAll("[data-menu]").forEach(button => button.addEventListener("click", () => {
+      const wasOpen = button.getAttribute("aria-expanded") === "true"; closeMenus();
+      if (!wasOpen) { button.setAttribute("aria-expanded", "true"); document.querySelector(`[data-menu-panel="${button.dataset.menu}"]`).hidden = false; }
+    }));
+    document.addEventListener("pointerdown", event => { if (!event.target.closest(".menu-group")) closeMenus(); });
+    document.querySelectorAll("[data-action]").forEach(button => button.addEventListener("click", () => workbenchAction(button.dataset.action).catch(e => toast(e.message, true))));
+    document.querySelectorAll("[data-ec-quantity]").forEach(button => button.addEventListener("click", () => {
+      $("ec-view").value = button.dataset.ecQuantity; document.querySelectorAll("[data-ec-quantity]").forEach(b => b.classList.toggle("active", b === button));
+      renderEC().catch(e => toast(e.message, true)); queueAnalysisSave();
+    }));
+    $("browser-filter").addEventListener("input", filterBrowser);
+    $("command-form").addEventListener("submit", async event => {
+      event.preventDefault(); const input = $("command-input").value.trim(); if (!input) return;
+      commandHistory.push(input); commandPosition = commandHistory.length;
+      try { await executeCommand(input); $("command-input").value = ""; }
+      catch (e) { $("command-response").textContent = e.message; toast(e.message, true); }
+    });
+    $("command-input").addEventListener("keydown", event => {
+      if (event.key === "ArrowUp" || event.key === "ArrowDown") {
+        event.preventDefault(); commandPosition = Math.max(0, Math.min(commandHistory.length, commandPosition + (event.key === "ArrowUp" ? -1 : 1)));
+        $("command-input").value = commandHistory[commandPosition] || "";
+      }
+    });
+    document.addEventListener("keydown", event => {
+      const typing = event.target.closest("input,textarea,select,[contenteditable=true]");
+      if (event.key === "Escape") { closeMenus(); return; }
+      if (event.key === "F1") { event.preventDefault(); workbenchAction("help"); return; }
+      if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "s") { event.preventDefault(); $("save-button").click(); return; }
+      if (typing || event.ctrlKey || event.metaKey || event.altKey || document.querySelector("dialog[open]")) return;
+      if (event.key === "/") { event.preventDefault(); $("command-input").focus(); }
+      else if (event.key === "1" || event.key === "2") { event.preventDefault(); setWorkspaceView(event.key === "1" ? "linked" : "detail"); }
+      else if (event.key === "Home") { event.preventDefault(); workbenchAction("reset").catch(e => toast(e.message, true)); }
+    });
+    window.addEventListener("resize", resizeWorkspace);
+  }
+
   function bindControls() {
+    bindWorkbench();
     document.querySelectorAll(".mode-button").forEach(b => b.addEventListener("click", () => switchMode(b.dataset.mode)));
     $("settings-button").addEventListener("click", openSettings); $("timing-chip").addEventListener("click", openSettings);
     $("notice-details").addEventListener("click", () => { openSettings(); $("alignment-details").open = true; });

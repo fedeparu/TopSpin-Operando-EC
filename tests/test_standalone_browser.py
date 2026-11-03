@@ -219,3 +219,90 @@ def test_real_standalone_same_start_estimate_keeps_uncertainty_unknown(browser, 
     screenshot(page, "standalone-real-contour-ux.png")
     assert not errors
     assert not requests
+
+
+def test_companion_menus_browser_and_display_commands(browser, tmp_path):
+    html = tmp_path / "companion.html"
+    html.write_text(build_html(), encoding="utf-8")
+    page, errors, requests = open_html(browser, html)
+    assert page.locator(".window-identity").inner_text().endswith("TopSpin companion")
+    assert page.locator("#browser-spectra .browser-spectrum").count() == 24
+    assert page.locator("#data-browser").is_visible()
+    page.get_by_test_id("browser-filter").fill("12")
+    assert page.locator("#browser-spectra .browser-spectrum:visible").count() == 1
+    page.locator("#browser-spectra .browser-spectrum:visible").click()
+    page.wait_for_function("window.ECNMR.currentId==='synthetic-12' && window.ECNMR.locked")
+    assert "12/24" in page.locator("#status-selection").inner_text()
+    page.get_by_test_id("browser-filter").fill("")
+
+    page.get_by_test_id("command-input").fill("contour")
+    page.get_by_test_id("command-input").press("Enter")
+    page.wait_for_function("document.querySelector('#heatmap-plot').data[0]?.type==='contour'")
+    assert "contour · done" in page.locator("#command-response").inner_text()
+    page.get_by_test_id("command-input").fill("spectrum 8")
+    page.get_by_test_id("command-input").press("Enter")
+    page.wait_for_function("window.ECNMR.currentId==='synthetic-08'")
+    page.get_by_test_id("command-input").fill("zg")
+    page.get_by_test_id("command-input").press("Enter")
+    page.wait_for_function("document.querySelector('#command-response').textContent.includes('unavailable')")
+    assert page.evaluate("window.ECNMR.currentId") == "synthetic-08"
+    assert page.evaluate("window.ECNMR.state.mode") == "offline"
+
+    page.get_by_test_id("workspace-detail").click()
+    page.wait_for_function("window.ECNMR.workspaceView==='detail'")
+    assert not page.locator(".explorer").is_visible()
+    assert page.locator("#spectrum-plot").is_visible()
+    with page.expect_download() as download:
+        page.get_by_test_id("save-button").click()
+    focused_session = tmp_path / "focused-analysis.json"
+    download.value.save_as(str(focused_session))
+    assert json.loads(focused_session.read_text())["analysis"]["workspace_view"] == "detail"
+    page.locator('[data-menu="view"]').click()
+    page.get_by_role("menuitem", name="Linked EC–NMR", exact=False).click()
+    page.wait_for_function("window.ECNMR.workspaceView==='linked'")
+    assert page.locator(".explorer").is_visible()
+    page.get_by_test_id("session-file").set_input_files(str(focused_session))
+    page.wait_for_function("window.ECNMR.workspaceView==='detail' && window.ECNMR.currentId==='synthetic-08'")
+    page.get_by_test_id("workspace-linked").click()
+    page.locator('.ribbon-button[data-action="analysis"]').click()
+    page.wait_for_function("document.querySelector('#peak-analysis').open && document.querySelector('#peak-plot').data?.[0]?.y?.length===24")
+    page.locator("#peak-analysis > summary").click()
+    page.locator('.ribbon-button[data-action="browser"]').click()
+    assert not page.locator("#data-browser").is_visible()
+    page.locator('.ribbon-button[data-action="browser"]').click()
+    assert page.locator("#data-browser").is_visible()
+    page.locator('[data-menu="help"]').click()
+    page.get_by_role("menuitem", name="Controls and commands…", exact=False).click()
+    assert page.locator("#help-dialog").is_visible()
+    assert "external companion prototype" in page.locator("#help-dialog").inner_text()
+    page.keyboard.press("Escape")
+    assert not page.locator("#help-dialog").is_visible()
+    assert not errors
+    assert not requests
+
+
+def test_companion_popout_restores_the_current_analysis_without_a_service(browser, tmp_path):
+    html = tmp_path / "popup-source.html"
+    html.write_text(build_html(), encoding="utf-8")
+    page, errors, requests = open_html(browser, html)
+    page.get_by_test_id("command-input").fill("spectrum 9")
+    page.get_by_test_id("command-input").press("Enter")
+    page.wait_for_function("window.ECNMR.currentId==='synthetic-09' && window.ECNMR.locked")
+    page.locator("#series-view").select_option("contour")
+    page.wait_for_function("document.querySelector('#heatmap-plot').data[0]?.type==='contour'")
+    with page.expect_popup() as popup_event:
+        page.get_by_test_id("popout-button").click()
+    popup = popup_event.value
+    popup_errors, popup_requests = [], []
+    popup.on("pageerror", lambda error: popup_errors.append(str(error)))
+    popup.on("request", lambda request: popup_requests.append(request.url) if request.url.startswith(("http:", "https:")) else None)
+    popup.wait_for_function("window.ECNMR?.ready && window.ECNMR.currentId==='synthetic-09' && window.ECNMR.locked")
+    assert popup.locator("#series-view").input_value() == "contour"
+    assert popup.locator("body").evaluate("el=>el.classList.contains('popup-window')")
+    assert popup.locator("#browser-spectra .browser-spectrum").count() == 24
+    assert popup.evaluate("window.ECNMR.state.mode") == "offline"
+    assert not errors
+    assert not requests
+    assert not popup_errors
+    assert not popup_requests
+    popup.close()
