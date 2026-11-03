@@ -23,6 +23,13 @@ def build_html(real=None):
     html = (root / "index.html").read_text(encoding="utf-8")
     if real is not None:
         real = validate(deepcopy(real))
+        if real["alignment"]["method"] == "unaligned" and real["ec"]["time_s"] and real["spectra"]:
+            from .model import align_same_start
+            try:
+                real = align_same_start(real)
+            except ValueError:
+                # An absent NMR acquisition extent still needs an explicit cadence.
+                pass
         real["name"] = "Your experimental EC–NMR data"
         real["analysis"]["x_axis"] = "index" if real["alignment"]["method"] == "unaligned" else "time"
         real["metadata"]["standalone_html"] = True
@@ -34,16 +41,15 @@ def build_html(real=None):
     app = (root / "app.js").read_text(encoding="utf-8")
     def script(text):
         return "<script>\n" + text.replace("</script", "<\\/script") + "\n</script>"
-    html = html.replace('<link rel="stylesheet" href="/static/style.css">', "<style>" + css + "\n.standalone-help{margin:18px 32px 0;padding:14px 18px;border:1px solid #ccded3;background:#eff7f0;border-radius:10px;font-size:12px;line-height:1.6;color:#315d48}.standalone-help strong{font-weight:600}.header-actions{flex-wrap:wrap}@media(max-width:700px){.standalone-help{margin:12px}}</style>")
+    html = html.replace('<link rel="stylesheet" href="/static/style.css">', "<style>" + css + "\n.standalone-error{margin:12px;padding:12px;border:1px solid #cf9f69;border-radius:8px;background:#fff7e8;color:#6a4c27}</style>")
     html = html.replace('<script src="/vendor/plotly.min.js" defer></script>', script(plotly_js))
     html = html.replace('<script src="/static/app.js" defer></script>',
                         '<script id="ecnmr-payload" type="application/octet-stream">' + encoded + '</script>\n' + script(adapter) + "\n" + script(app))
     html = html.replace('<a class="brand" href="/"', '<a class="brand" href="#"')
     html = html.replace('Local workspace<span class="header-divider">/</span>Prototype', 'Browser workspace<span class="header-divider">/</span>Standalone HTML')
-    html = html.replace('<div class="header-actions">', '<div class="header-actions"><button class="button secondary" id="download-html" data-testid="download-html">↓ Download HTML</button>')
-    html = html.replace('<main class="app-shell">', '<div class="standalone-help" id="standalone-help"><strong>Ready to explore — no installation needed.</strong> Your recordings open in Offline analysis. Use the spectrum list, overlays, peak controls and intensity map. Choose <strong>Simulation → Check / prepare → Start</strong> to try progressively arriving synthetic data. Real row timing is unknown; manual alignment is an explicit assumption. Download this HTML to use offline; Save analysis keeps your current data and settings in JSON.</div><main class="app-shell">')
-    html = html.replace('<button class="button subtle full-width" id="demo-button"', '<button class="button secondary full-width" id="real-button" data-testid="real-button">Open your experimental data</button><button class="button subtle full-width" id="demo-button"')
-    html = html.replace('Recorded data are replayed. New spectra appear only after their acquisition ends.', 'Simulation uses the clearly labelled synthetic example when real row timing is unknown. Completed spectra appear progressively.')
+    html = html.replace('<!-- standalone-download -->', '<button class="button ghost" id="download-html" data-testid="download-html" title="Save a self-contained copy for offline use">Download HTML</button>')
+    html = html.replace('<!-- standalone-real -->', '<button class="button secondary" id="real-button" data-testid="real-button">Your experimental data</button>')
+    html = html.replace('<!-- standalone-help -->', '<div id="standalone-help" class="standalone-error" role="alert" hidden></div>')
     html = html.replace('Raw files remain unchanged.', 'Data stay in this browser. Save JSON before closing. Raw-file import uses the Python app.')
     html = html.replace('Offline import · shared analysis · simulated acquisition', 'Standalone HTML · no server · hardware disabled')
     html = html.replace('Operando · EC–NMR workspace', 'Operando · interactive EC–NMR HTML')

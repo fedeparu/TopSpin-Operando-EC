@@ -2,7 +2,8 @@
 
 A working **local** application for completed EC–NMR data and simulated live
 acquisition. One Plotly interface supports importing, alignment, linked spectral
-selection, overlays, peak integration, progressive acquisition, saving and reopening.
+selection, stacked or contour NMR views, peak integration, progressive acquisition,
+saving and reopening.
 The browser, data service and charts run on your computer; no cloud account,
 EC-Lab installation or TopSpin installation is needed for these two modes.
 
@@ -10,7 +11,7 @@ EC-Lab installation or TopSpin installation is needed for these two modes.
 provided for installation-specific validation. Native GUI embedding, COM/OEM
 instrument control and actual instrument synchronization have not been tested.
 
-![Synthetic offline viewer with linked spectra](docs/preview-synthetic.png)
+![EC–NMR viewer preview](docs/preview-synthetic.png)
 
 For a browser-only version and downloadable self-contained HTML, see the
 [standalone guide](docs/STANDALONE.md). The Python application below retains raw-file
@@ -58,27 +59,36 @@ python3 -m venv .venv
 
 ## Use the viewer
 
-1. The initial screen contains a clearly labelled **synthetic** battery example.
-   In Offline mode, click an EC curve to select a spectrum; select spectra in the
-   list to highlight their acquisition intervals. Select several for overlays.
-2. Choose a peak region in ppm to track raw, signed integrated intensity over
-   time, voltage or charge. Units are intensity·ppm; no baseline correction or
-   quantitative concentration calibration is implied.
-3. Import a completed `.mpt`/`.mpr` file or ZIP and a ZIP containing a processed
-   Bruker experiment/series. The importer reads `1r` or explicitly identified
-   pseudo-2D `2rr`; it preserves processing parameters and original timestamps.
-   Raw FID reprocessing and true 2D analysis are outside this release.
-4. If timing is unknown, inspect metadata and enter an explicit manual offset,
-   assumed repetition interval and optional acquisition duration/uncertainty.
-   A manual cadence is recorded as an **assumption**. Without alignment,
-   spectra can be inspected but EC clicks do not claim a corresponding spectrum.
-5. In Simulation mode, prepare and start. Samples and **completed** spectra appear
-   progressively. Change replay speed, pause/resume, stop, or inject a simulated
-   disconnection/failure. Select older spectra while the run continues. Replay
-   of real recordings requires explicit alignment and is still simulation.
-6. Save a session to retain the visible data, provenance, alignment and analysis
-   settings. Reopen that JSON session through the interface. CSV and chart-image
-   exports support further analysis and reporting.
+The main view places the EC curves and the NMR series side by side on a shared
+vertical time axis. Move the mouse through either plot to inspect that time in
+both. Click to **pin** the selected acquisition; **Unlock** restores hover
+inspection. The dedicated 1D detail shows the selected spectrum for closer
+inspection and comparison.
+
+- Switch the NMR series between **stacked spectra** and **contour/map** views.
+  Adjust gain for legibility, choose the time coverage, or return to the full
+  recorded ppm range. These display controls do not change the imported data.
+- The supplied recordings open with the user-requested **same-start assumption**:
+  EC and NMR both begin at elapsed time zero. The 64 NMR rows are placed in equal
+  estimated intervals across their recorded 74,397-second acquisition extent.
+  Timing is immediately usable for exploration, with the assumption shown in the
+  interface. It is not recovered per-row timing or validated synchronization.
+- A source-only installation opens a clearly labelled synthetic example unless
+  experimental paths or a saved session are supplied. Import a completed
+  `.mpt`/`.mpr` file or ZIP and a ZIP containing processed Bruker data. The reader
+  supports `1r` and explicitly identified pseudo-2D `2rr`; raw FID reprocessing
+  and true 2D analysis remain outside this release.
+- Open the secondary analysis controls to overlay spectra or track a peak region
+  over time, voltage or charge. Integrals use raw signed intensity·ppm; no
+  baseline correction or concentration calibration is implied. Alignment and
+  instrument settings are available in the collapsed advanced controls.
+- In Simulation mode, prepare and start. EC samples and completed NMR spectra
+  appear progressively in the same view. Pause/resume, stop, or inject a
+  simulated disconnection/failure. Previously arrived spectra remain available
+  for inspection. Replaying recordings is still simulation.
+- Save a session to retain visible measurements, provenance, timing assumptions
+  and analysis settings; reopen the JSON session later. CSV and chart-image
+  exports support further analysis and reporting.
 
 To open files directly, including through the TopSpin launcher:
 
@@ -107,8 +117,9 @@ are included in Git**. See the detailed [data inspection](docs/DATA_INSPECTION.m
 - The EC internal date is in **2024**, while the NMR acquisition is in **July
   2025**. The NMR rows have no individual acquisition timestamps, and automatic
   tune/match can change their cadence. **These files cannot establish a measured
-  common timeline.** Manual alignment enables exploration but cannot prove the
-  two recordings were synchronized.
+  common timeline.** The requested same-start default and estimated uniform NMR
+  intervals enable immediate linked exploration. They are retained as analysis
+  assumptions and do not prove the recordings were synchronized.
 
 The repository provides entirely [synthetic example files](examples/README.md)
 and a deterministic generator for demonstrations and portable tests.

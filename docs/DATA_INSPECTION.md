@@ -85,11 +85,18 @@ is rounded to integer seconds; the audit contains finer clock resolution but
 does not establish synchronization accuracy with another instrument.
 
 **No per-row timestamps are supplied.** The pulse program inserts automatic
-tune/match between rows, so dividing total duration by 64 would manufacture
-uniform timing. Import leaves every matrix row's `time_s` and `duration_s` null.
-The viewer requires explicit operator-supplied timing assumptions before linking
-them to EC. A manual uniform cadence is an analysis assumption and is recorded
-as such, with offset/uncertainty. True 2D spectra without explicit pseudo-2D
+tune/match between rows, so the actual intervals need not be uniform. The raw
+import retains unknown row timing. For the requested linked-view default, the
+user has authorized assuming simultaneous EC/NMR start and estimating uniform
+NMR intervals from the complete acquisition extent:
+
+`74,397 seconds / 64 rows = 1,162.453125 seconds per estimated interval`.
+
+This places row 1 at elapsed zero and covers the NMR record through 74,397 s.
+The display records this as a **same-start, uniform-interval assumption** with
+unknown uncertainty. It preserves the original timestamps and missing per-row
+timing separately. Advanced alignment can replace the assumption with a known
+offset, cadence or duration. True 2D spectra without explicit pseudo-2D
 identification are rejected rather than treated as time series.
 
 ## Electrochemical measurement
@@ -125,12 +132,18 @@ filename's July 2025 label or with the NMR epoch/audit acquisition interval.
 
 ## Synchronization conclusion
 
-The archives cannot establish a measured common timeline. The viewer must show
-both datasets but **must not claim automatic synchronization**. Their dates
+The source metadata cannot establish a measured common timeline: the dates
 differ by over a year, the EC timezone is unknown, and NMR row timing is absent.
-Only an operator-confirmed manual alignment (with cadence/offset, uncertainty,
-and an explanatory note), or external timestamp evidence, can support linked
-analysis. Demonstrations using assumed alignment must retain that label.
+Those source facts are preserved.
+
+The viewer now opens the supplied recordings with the **user-authorized
+assumption that both acquisitions began together**. EC elapsed zero is the
+shared origin; the NMR rows occupy the estimated intervals described above.
+This makes linked hover, pinned selection and the stacked/contour series useful
+immediately, without requiring custom alignment settings. The interface and
+saved session identify the assumption and unknown timing uncertainty. It does
+not assert hardware synchronization or equal measured row durations. External
+timestamp evidence can later replace this exploratory alignment.
 
 ## Verification
 

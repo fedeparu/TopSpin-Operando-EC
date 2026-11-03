@@ -6,7 +6,7 @@ import sqlite3
 import pytest
 
 from ecnmr.controller import Controller
-from ecnmr.model import align, match_spectrum, peak_integral, validate
+from ecnmr.model import align, align_same_start, match_spectrum, peak_integral, validate
 from ecnmr.synthetic import demo
 
 
@@ -188,3 +188,129 @@ def test_saved_session_rejects_misleading_or_nonfinite_data(mutate):
     mutate(source)
     with pytest.raises(ValueError):
         validate(source)
+
+
+def whole_span_series(rows=64, span=74397):
+    source = demo()
+    metadata = {"experiment_source": "recorded-nmr/4", "rows": rows,
+                "acquisition_start": "2025-07-02T09:09:51+00:00",
+                "acquisition_end": "2025-07-03T05:49:48+00:00",
+                "acquisition_parameters": {"DATE_START": 1751447391, "DATE": 1751447391 + span},
+                "timing_source": "row timestamps unavailable"}
+    source["metadata"] = {"experiments": [deepcopy(metadata)], "start_time": metadata["acquisition_start"]}
+    source["ec"]["start_time"] = "2024-05-31T04:54:03.166000"
+    source["spectra"] = [{"id": f"recorded-{i+1}", "label": f"Row {i+1}", "source": "recorded-nmr/4/pdata/1/2rr",
+                          "time_s": None, "duration_s": None, "ppm": [1., 0.], "intensity": [2., 1.],
+                          "metadata": {**deepcopy(metadata), "row_index": i}}
+                         for i in range(rows)]
+    source["alignment"]["method"] = "unaligned"
+    return source
+
+
+def test_same_start_uses_recorded_nmr_span_not_ec_length_and_retains_unknown_source_times():
+    source = whole_span_series()
+    before = deepcopy(source)
+    result = align_same_start(source)
+    assert source == before
+    assert result["alignment"]["method"] == "manual"
+    assert result["alignment"]["assumption"] == "same_start"
+    assert result["alignment"]["offset_s"] == 0
+    assert result["alignment"]["uncertainty_s"] is None
+    assert result["alignment"]["estimated_spectrum_count"] == 64
+    assert result["alignment"]["assumed_interval_s"] == 1162.453125
+    assert result["spectra"][0]["time_s"] == 0
+    assert result["spectra"][-1]["time_s"] + result["spectra"][-1]["duration_s"] == 74397
+    assert result["spectra"][-1]["time_s"] > result["ec"]["time_s"][-1]
+    assert "2024" in result["alignment"]["note"] and "2025" in result["alignment"]["note"]
+    assert "unknown" in result["alignment"]["note"]
+    for original, estimated in zip(source["spectra"], result["spectra"]):
+        assert estimated["metadata"]["original_time_s"] is None
+        assert estimated["metadata"]["original_duration_s"] is None
+        assert estimated["metadata"]["acquisition_parameters"] == original["metadata"]["acquisition_parameters"]
+        assert estimated["metadata"]["timing_estimated"] is True
+        assert "estimated" in estimated["metadata"]["timing_basis"]
+    assert match_spectrum(result, 1.5 * 1162.453125)["spectrum_id"] == "recorded-2"
+
+
+def test_same_start_is_idempotent_and_replaces_custom_estimates_from_original_unknowns():
+    same = align_same_start(whole_span_series())
+    assert align_same_start(same) == same
+    custom = align(same, offset_s=100, interval_s=60, duration_s=45)
+    restored = align_same_start(custom)
+    assert restored["alignment"]["offset_s"] == 0
+    assert restored["spectra"][1]["time_s"] == 1162.453125
+    assert restored["spectra"][1]["duration_s"] == 1162.453125
+    assert restored["spectra"][1]["metadata"]["original_time_s"] is None
+
+
+def test_same_start_preserves_actual_imported_row_times_even_after_manual_override():
+    actual = demo()
+    same = align_same_start(actual)
+    assert [s["time_s"] for s in same["spectra"]] == [s["time_s"] for s in actual["spectra"]]
+    assert [s["duration_s"] for s in same["spectra"]] == [s["duration_s"] for s in actual["spectra"]]
+    assert not same["alignment"]["estimated_row_times"]
+    custom = align(actual, interval_s=10, duration_s=5)
+    assert custom["spectra"][1]["metadata"]["original_time_s"] == 300
+    restored = align_same_start(custom)
+    assert [s["time_s"] for s in restored["spectra"]] == [s["time_s"] for s in actual["spectra"]]
+    assert [s["duration_s"] for s in restored["spectra"]] == [s["duration_s"] for s in actual["spectra"]]
+
+
+def test_same_start_cannot_use_ec_extent_to_fill_unknown_nmr_timing():
+    source = whole_span_series()
+    source["metadata"].pop("experiments")
+    for spectrum in source["spectra"]:
+        spectrum["metadata"] = {"row_index": spectrum["metadata"]["row_index"]}
+    with pytest.raises(ValueError, match="explicit manual cadence"):
+        align_same_start(source)
+
+
+def test_same_start_keeps_group_offsets_and_their_individual_recorded_cadences():
+    source = whole_span_series(rows=2, span=100)
+    for spectrum in source["spectra"]:
+        spectrum["metadata"]["acquisition_parameters"] = {"DATE_START": 1000, "DATE": 1100}
+    second_group = deepcopy(source["spectra"])
+    for spectrum in second_group:
+        spectrum["id"] += "-second"
+        spectrum["metadata"].update({"experiment_source": "recorded-nmr/5", "acquisition_parameters": {"DATE_START": 1300, "DATE": 1500}})
+    source["spectra"] += second_group
+    source["metadata"]["experiments"] = []
+    result = align_same_start(source)
+    assert [s["time_s"] for s in result["spectra"]] == [0, 50, 300, 400]
+    assert [s["duration_s"] for s in result["spectra"]] == [50, 50, 100, 100]
+
+
+def test_same_start_iso_fallback_compares_explicit_timezone_offsets_as_instants():
+    source = whole_span_series(rows=2)
+    source["metadata"]["experiments"] = []
+    for spectrum in source["spectra"]:
+        spectrum["metadata"].update({"acquisition_parameters": {},
+            "acquisition_start": "2025-01-01T00:00:00+00:00",
+            "acquisition_end": "2025-01-01T00:02:00+00:00"})
+    second = deepcopy(source["spectra"])
+    for spectrum in second:
+        spectrum["id"] += "-offset"
+        spectrum["metadata"].update({"experiment_source": "recorded-nmr/5",
+            "acquisition_start": "2025-01-01T02:00:00+02:00",
+            "acquisition_end": "2025-01-01T02:04:00+02:00"})
+    source["spectra"] += second
+    result = align_same_start(source)
+    # Both groups started at the same instant, despite differing clock displays.
+    assert [s["time_s"] for s in result["spectra"]] == [0, 60, 0, 120]
+    assert [s["duration_s"] for s in result["spectra"]] == [60, 60, 120, 120]
+
+
+@pytest.mark.parametrize("start,end", [
+    ("2025-01-01T00:00:00", "2025-01-01T00:02:00+00:00"),
+    ("2025-01-01T00:00:00+00:00", "2025-01-01T00:02:00"),
+])
+def test_same_start_iso_fallback_rejects_mixed_timezone_awareness(start, end):
+    source = whole_span_series(rows=2)
+    source["metadata"]["experiments"] = []
+    for spectrum in source["spectra"]:
+        spectrum["metadata"].update({"acquisition_parameters": {},
+            "acquisition_start": start, "acquisition_end": end})
+    before = deepcopy(source)
+    with pytest.raises(ValueError, match="explicit manual cadence"):
+        align_same_start(source)
+    assert source == before

@@ -102,3 +102,28 @@ def test_ec_mpt_import_and_missing_units_fail_without_touching_sources(client):
     bad = export.replace("time/s", "time")
     assert client.post("/api/import", files={"ec_file": ("bad.mpt", bad.encode(), "text/plain")}).status_code == 400
     assert client.get("/api/experiment").json() == exp
+
+
+def test_same_start_route_preserves_imported_timing_and_rejects_mixed_arguments(client):
+    before = client.get("/api/experiment").json()
+    response = client.post("/api/alignment", json={"method": "same_start"})
+    assert response.status_code == 200
+    same = response.json()
+    assert same["alignment"]["assumption"] == "same_start"
+    assert same["alignment"]["method"] == "manual"
+    assert [s["time_s"] for s in same["spectra"]] == [s["time_s"] for s in before["spectra"]]
+    assert client.post("/api/alignment", json={"method": "same_start", "interval_s": 10}).status_code == 400
+
+
+def test_combined_load_defaults_to_user_authorized_same_start(monkeypatch):
+    from ecnmr import importers
+    from ecnmr.server import load_paths
+    from test_core import whole_span_series
+    source = whole_span_series()
+    monkeypatch.setattr(importers, "load_ec", lambda path: source["ec"])
+    monkeypatch.setattr(importers, "load_nmr", lambda path: (source["spectra"], source["metadata"], []))
+    result = load_paths("completed.mpr", "nmr")
+    assert result["alignment"]["assumption"] == "same_start"
+    assert result["spectra"][1]["time_s"] == 1162.453125
+    assert source["spectra"][1]["time_s"] is None
+    assert any("assumption" in warning for warning in result["warnings"])

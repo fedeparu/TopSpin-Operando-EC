@@ -17,7 +17,7 @@ from fastapi.staticfiles import StaticFiles
 import plotly
 
 from .controller import Controller
-from .model import experiment, align, match_spectrum, validate
+from .model import experiment, align, align_same_start, match_spectrum, validate
 from .synthetic import demo
 
 log = logging.getLogger(__name__)
@@ -49,6 +49,13 @@ def load_paths(ec_path=None, nmr_path=None):
     exp["warnings"].append("Independent recordings: verify clocks and supply explicit alignment; original timestamps are preserved.")
     if spectra:
         exp["analysis"]["selected_ids"] = [spectra[0]["id"]]
+    if ec and spectra:
+        try:
+            # The user has explicitly authorized the same-start assumption for
+            # this prototype. Source importers continue to retain unknown times.
+            exp = align_same_start(exp)
+        except ValueError as exc:
+            exp["warnings"].append(f"Same-start alignment was not applied: {exc}")
     return validate(exp)
 
 
@@ -170,6 +177,11 @@ def create_app(state_dir=None, initial=None, auto_tick=True):
 
     @app.post("/api/alignment")
     def alignment(body: dict):
+        if body.get("method") == "same_start":
+            if set(body) != {"method"}:
+                raise ValueError("Same-start alignment takes no manual timing arguments")
+            controller.replace(align_same_start(controller.source))
+            return controller.view()
         allowed = {"offset_s", "interval_s", "duration_s", "uncertainty_s", "method"}
         if set(body) - allowed:
             raise ValueError("Unknown alignment setting")

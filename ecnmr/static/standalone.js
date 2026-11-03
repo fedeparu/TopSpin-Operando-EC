@@ -90,6 +90,9 @@
     try {
       localStorage.setItem("ecnmr-html:" + source.id, JSON.stringify({analysis: source.analysis,
         alignment: source.alignment, intervals: source.spectra.map(s => ({time_s: s.time_s, duration_s: s.duration_s,
+          original_time_s: "original_time_s" in s.metadata ? s.metadata.original_time_s : s.time_s,
+          original_duration_s: "original_duration_s" in s.metadata ? s.metadata.original_duration_s : s.duration_s,
+          timing_estimated: s.metadata.timing_estimated, duration_estimated: s.metadata.duration_estimated,
           timing_basis: s.metadata?.timing_basis, duration_basis: s.metadata?.duration_basis}))}));
     } catch (_) { /* File browsers may disable storage; downloaded sessions remain available. */ }
   }
@@ -102,6 +105,13 @@
       proposed.alignment = saved.alignment;
       if (saved.intervals.length !== proposed.spectra.length) return;
       saved.intervals.forEach((interval, i) => {
+        const spectrum = proposed.spectra[i];
+        if ("original_time_s" in interval) spectrum.metadata.original_time_s = interval.original_time_s;
+        else if (!("original_time_s" in spectrum.metadata)) spectrum.metadata.original_time_s = spectrum.time_s;
+        if ("original_duration_s" in interval) spectrum.metadata.original_duration_s = interval.original_duration_s;
+        else if (!("original_duration_s" in spectrum.metadata)) spectrum.metadata.original_duration_s = spectrum.duration_s;
+        if (typeof interval.timing_estimated === "boolean") spectrum.metadata.timing_estimated = interval.timing_estimated;
+        if (typeof interval.duration_estimated === "boolean") spectrum.metadata.duration_estimated = interval.duration_estimated;
         proposed.spectra[i].time_s = interval.time_s;
         proposed.spectra[i].duration_s = interval.duration_s;
         if (interval.timing_basis) proposed.spectra[i].metadata.timing_basis = interval.timing_basis;
@@ -118,11 +128,110 @@
         throw new Error("Cadence must be positive; duration and uncertainty must be nonnegative.");
     }
     proposed.spectra.forEach((s, i) => {
-      if (body.interval_s != null) { s.time_s = i * body.interval_s; s.metadata.timing_basis = "operator-assumed uniform cadence"; }
-      if (body.duration_s != null) { s.duration_s = body.duration_s; s.metadata.duration_basis = "operator supplied"; }
+      if (body.interval_s != null) {
+        if (!("original_time_s" in s.metadata)) s.metadata.original_time_s = s.time_s ?? null;
+        s.time_s = i * body.interval_s; s.metadata.timing_basis = "operator-assumed uniform cadence";
+      }
+      if (body.duration_s != null) {
+        if (!("original_duration_s" in s.metadata)) s.metadata.original_duration_s = s.duration_s ?? null;
+        s.duration_s = body.duration_s; s.metadata.duration_basis = "operator supplied";
+      }
     });
     proposed.alignment = {method: "manual", offset_s: body.offset_s, uncertainty_s: body.uncertainty_s ?? null,
       assumed_interval_s: body.interval_s ?? null};
+    replace(proposed); saveSettings();
+  }
+  function acquisitionExtent(metadata) {
+    const parameters = metadata.acquisition_parameters || {};
+    let start = parameters.DATE_START, end = parameters.DATE;
+    if (start != null && end != null) { start = Number(start); end = Number(end); }
+    else {
+      // Treat timezone-less ISO strings as floating clock values, not host-local dates.
+      const hasZone = value => typeof value === "string" && /(?:Z|[+-]\d\d:\d\d)$/i.test(value);
+      if (hasZone(metadata.acquisition_start) !== hasZone(metadata.acquisition_end)) return null;
+      const epoch = value => {
+        if (typeof value !== "string") return NaN;
+        return Date.parse(/[Zz]|[+-]\d\d:\d\d$/.test(value) ? value : value + "Z") / 1000;
+      };
+      start = epoch(metadata.acquisition_start); end = epoch(metadata.acquisition_end);
+    }
+    return finite(start) && finite(end) && end > start ? [start, end] : null;
+  }
+  function sameStartAlign() {
+    const proposed = clone(source);
+    if (!proposed.ec.time_s.length || !proposed.spectra.length)
+      throw new Error("Load both EC and NMR data before assuming the same acquisition start.");
+    const experiments = new Map((proposed.metadata.experiments || []).map(m => [m.experiment_source, m]));
+    const groups = new Map();
+    for (const s of proposed.spectra) {
+      s.metadata ||= {};
+      for (const field of ["time_s", "duration_s"]) {
+        if (("original_" + field) in s.metadata) {
+          s[field] = s.metadata["original_" + field];
+          if (s[field] != null) s.metadata[field === "time_s" ? "timing_basis" : "duration_basis"] = "preserved original imported per-row timing";
+        }
+      }
+      const key = s.metadata.experiment_source || s.source;
+      if (!groups.has(key)) groups.set(key, []);
+      groups.get(key).push(s);
+    }
+    const metadata = new Map(), extents = new Map();
+    for (const [key, spectra] of groups) {
+      const m = {...(experiments.get(key) || {}), ...spectra[0].metadata};
+      metadata.set(key, m);
+      const extent = acquisitionExtent(m);
+      if (extent) extents.set(key, extent);
+    }
+    const allExtents = [...extents.values(), ...[...experiments.values()].map(acquisitionExtent).filter(Boolean)];
+    const origin = allExtents.length ? Math.min(...allExtents.map(e => e[0])) : null;
+    const estimates = [];
+    let estimatedTimes = 0, estimatedDurations = 0;
+    for (const [key, spectra] of groups) {
+      if (spectra.every(s => s.time_s != null && s.duration_s != null)) continue;
+      const m = metadata.get(key);
+      if (!extents.has(key) || m.extracted_processing_variant) {
+        if (spectra.some(s => s.time_s == null))
+          throw new Error("Recorded NMR acquisition extent is unavailable for unknown row timing; supply an explicit manual cadence.");
+        continue;
+      }
+      const [start, end] = extents.get(key);
+      const count = m.rows ?? spectra.length;
+      if (!Number.isInteger(count) || count < spectra.length || count <= 0)
+        throw new Error("Recorded NMR row count is invalid; supply an explicit manual cadence.");
+      const interval = (end - start) / count, offset = start - origin;
+      spectra.forEach((s, index) => {
+        const row = s.metadata.row_index ?? index;
+        if (!Number.isInteger(row) || row < 0 || row >= count)
+          throw new Error("Recorded NMR row index is invalid; supply an explicit manual cadence.");
+        if (s.time_s == null) {
+          if (!("original_time_s" in s.metadata)) s.metadata.original_time_s = null;
+          s.time_s = offset + row * interval;
+          s.metadata.timing_basis = "estimated uniform row times from recorded whole-NMR acquisition span / row count; individual row times were not recorded";
+          s.metadata.timing_estimated = true; estimatedTimes++;
+        }
+        if (s.duration_s == null) {
+          if (!("original_duration_s" in s.metadata)) s.metadata.original_duration_s = null;
+          s.duration_s = interval;
+          s.metadata.duration_basis = "estimated uniform row interval, including unknown inter-row overhead";
+          s.metadata.duration_estimated = true; estimatedDurations++;
+        }
+      });
+      estimates.push({experiment_source: key, row_count: count, span_s: end - start, interval_s: interval, start_offset_s: offset});
+    }
+    const ecYear = String(proposed.ec.start_time || "").slice(0, 4);
+    const nmrYear = String(proposed.metadata.start_time || "").slice(0, 4);
+    const clockNote = /^\d{4}$/.test(ecYear) && /^\d{4}$/.test(nmrYear) && ecYear !== nmrYear
+      ? ` Conflicting EC ${ecYear} and NMR ${nmrYear} absolute-clock years are ignored under this assumption.`
+      : " Absolute instrument-clock dates are ignored under this assumption.";
+    let note = "User assumption: EC and NMR acquisitions started together at elapsed t=0." + clockNote;
+    if (estimates.length) note += " Missing NMR row times/durations are estimated uniformly from each recorded NMR span and row count; automatic tune/match may vary the actual cadence.";
+    note += " Synchronization uncertainty is unknown.";
+    proposed.alignment = {method: "manual", assumption: "same_start", offset_s: 0, uncertainty_s: null, note,
+      timing_basis: estimates.length ? "recorded NMR span / recorded row count" : "preserved imported per-row timing",
+      estimated_row_times: !!estimatedTimes, estimated_spectrum_count: estimatedTimes,
+      estimated_duration_count: estimatedDurations, row_timing_estimates: estimates,
+      assumed_interval_s: estimates.length === 1 ? estimates[0].interval_s : null};
+    if (!proposed.warnings.includes(note)) proposed.warnings.push(note);
     replace(proposed); saveSettings();
   }
   function match(time) {
@@ -185,7 +294,13 @@
       else if (url.pathname === "/api/builtin-real") {
         if (!payload.real) throw new Error("This HTML contains only a synthetic example.");
         replace(payload.real); restoreSettings(); value = view();
-      } else if (url.pathname === "/api/alignment") { manualAlign(body); value = view(); }
+      } else if (url.pathname === "/api/alignment") {
+        if (body.method === "same_start") {
+          if (Object.keys(body).some(key => key !== "method")) throw new Error("Same-start alignment does not accept manual timing arguments.");
+          sameStartAlign();
+        } else manualAlign(body);
+        value = view();
+      }
       else if (url.pathname === "/api/spectrum-match") value = match(Number(url.searchParams.get("time_s")));
       else if (url.pathname === "/api/mode") {
         if (!["offline", "simulation"].includes(body.mode)) throw new Error("Hardware acquisition is disabled in this HTML version.");
@@ -212,10 +327,13 @@
     });
     $("real-button").addEventListener("click", async () => {
       const response = await window.ECNMR_TRANSPORT("/api/builtin-real", {method: "POST"});
-      if (response.ok) await window.ECNMR.refresh();
+      if (response.ok) {
+        $("settings-dialog")?.close();
+        await window.ECNMR.refresh();
+      }
       else alert((await response.json()).detail);
     });
     try { await ready; $("real-button").hidden = !payload.real; }
-    catch (e) { $("standalone-help").textContent = e.message; }
+    catch (e) { $("standalone-help").textContent = e.message; $("standalone-help").hidden = false; }
   });
 })();

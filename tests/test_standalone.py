@@ -55,4 +55,7 @@ def test_real_standalone_preserves_all_original_measurements_and_unknown_timing(
     assert len(data["spectra"]) == 64
     assert data["spectra"] == source["spectra"]
     assert data["ec"] == source["ec"]
-    assert all(s["time_s"] is None for s in data["spectra"])
+    assert data["alignment"]["assumption"] == "same_start"
+    assert data["alignment"]["uncertainty_s"] is None
+    assert data["spectra"][1]["time_s"] == pytest.approx(74397 / 64)
+    assert all(s["metadata"]["original_time_s"] is None for s in data["spectra"])
