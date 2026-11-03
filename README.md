@@ -12,6 +12,10 @@ instrument control and actual instrument synchronization have not been tested.
 
 ![Synthetic offline viewer with linked spectra](docs/preview-synthetic.png)
 
+For a browser-only version and downloadable self-contained HTML, see the
+[standalone guide](docs/STANDALONE.md). The Python application below retains raw-file
+import and incremental recovery.
+
 ## Install and launch on Windows
 
 Install **64-bit Python 3.12** from python.org, including the Python launcher.

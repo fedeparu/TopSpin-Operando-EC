@@ -18,3 +18,5 @@ test-results/
 playwright-report/
 dist/
 build/
+*standalone*.html
+operando-ecnmr.html

@@ -76,3 +76,11 @@ Real-data screenshots were generated separately and were not committed.
 Follow the concrete [instrument acceptance procedure](INSTRUMENT_INTEGRATION.md)
 with the supported vendor APIs, approved dummy-cell protocol, recorded software
 versions and independently validated hardware limits before enabling real control.
+
+## Standalone HTML follow-up
+
+The updated complete suite passed **59 tests** in 79.85 seconds, including four
+Chromium workflows. The HTML exporter preserves all real samples losslessly and
+bundles every plotting asset. Tests execute exported and downloaded HTML bytes
+with no backend or external data requests. See [standalone verification](STANDALONE.md)
+for exact coverage and the managed browser's file:// policy limitation.

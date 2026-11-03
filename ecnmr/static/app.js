@@ -34,9 +34,10 @@
   const timeOf = (s) => isAligned() && finite(s.time_s) ? s.time_s + (ui.experiment.alignment.offset_s || 0) : null;
   const durationOf = (s) => finite(s.duration_s) && s.duration_s >= 0 ? s.duration_s : null;
   const representativeTime = (s) => finite(timeOf(s)) ? timeOf(s) + (durationOf(s) || 0) / 2 : null;
+  const request = window.ECNMR_TRANSPORT || window.fetch.bind(window);
 
   async function api(path, options = {}) {
-    const response = await fetch(path, options);
+    const response = await request(path, options);
     if (!response.ok) {
       let message = `${response.status} ${response.statusText}`;
       try { const body = await response.json(); message = typeof body.detail === "string" ? body.detail : JSON.stringify(body.detail || body); } catch (_) { /* Preserve HTTP error. */ }
@@ -88,7 +89,7 @@
         await render();
       }
       renderState();
-      $("connection-label").textContent = "Service connected"; ui.lastError = "";
+      $("connection-label").textContent = window.ECNMR_TRANSPORT ? "Running in this browser" : "Service connected"; ui.lastError = "";
     } catch (error) {
       $("connection-label").textContent = "Service unavailable · retrying";
       if (error.message !== ui.lastError) toast(error.message, true);
@@ -490,7 +491,7 @@
     ["prepare", "start", "stop", "disconnect", "reconnect", "fail"].forEach(action => $(action + "-button").addEventListener("click", () => simulationAction(action)));
     $("pause-button").addEventListener("click", () => simulationAction(["paused", "disconnected"].includes(ui.state?.state) ? "resume" : "pause"));
     $("save-button").addEventListener("click", () => withBusy("Saving the complete analysis…", async () => {
-      await saveAnalysis(); const response = await fetch("/api/session"); if (!response.ok) throw new Error("The analysis could not be exported.");
+      await saveAnalysis(); const response = await request("/api/session"); if (!response.ok) throw new Error("The analysis could not be exported.");
       downloadBlob(await response.blob(), `${safeName(ui.experiment.name)}.ecnmr.json`); toast("Analysis saved with data, provenance, alignment and selections.");
     }));
     $("reopen-button").addEventListener("click", () => $("session-file").click());
