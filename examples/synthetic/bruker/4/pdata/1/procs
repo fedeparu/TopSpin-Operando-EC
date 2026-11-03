@@ -1,0 +1,11 @@
+##TITLE= ENTIRELY SYNTHETIC EC-NMR example
+##JCAMPDX= 5.0
+##$SI= 512
+##$SF= 155.5
+##$SW_p= 31100
+##$OFFSET= 100
+##$BYTORDP= 0
+##$DTYPP= 0
+##$NC_proc= 0
+##$XDIM= 512
+##END=
